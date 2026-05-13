@@ -21,7 +21,7 @@ interface DetectionEvent {
 interface CameraConfig {
   source: "webcam" | "rtsp" | "test";
   url: string;
-  intervalSeconds: number;
+  sensitivity: number;
   ollamaUrl: string;
   ollamaModel: string;
   aiPrompt: string;
@@ -31,7 +31,7 @@ export default function App() {
   const [config, setConfig] = useState<CameraConfig>({
     source: "webcam",
     url: "rtsp://localhost:8554/mystream",
-    intervalSeconds: 5,
+    sensitivity: 25,
     ollamaUrl: "http://localhost:11434",
     ollamaModel: "granite4.1:3b",
     aiPrompt: "Analyze this image from my RPI5 dashcam. Briefly describe any significant motion, objects (people, cars, animals) or hazards. Be concise."
@@ -42,10 +42,12 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rtspFrame, setRtspFrame] = useState<string | null>(null);
+  const [lastMotionTime, setLastMotionTime] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevFrameRef = useRef<ImageData | null>(null);
 
   // --- Effects ---
   
@@ -93,46 +95,99 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isMonitoring, config.source, config.url]);
 
-  // AI Trigger Interval
+  // Motion Detection Loop
   useEffect(() => {
-    let interval: number;
-    if (isMonitoring) {
-      const trigger = () => {
-        const source = config.source === "webcam" ? videoRef.current : imgRef.current;
-        if (!source) return;
+    let animationFrame: number;
+    
+    const detectMotion = () => {
+      if (!isMonitoring || !canvasRef.current) return;
+      
+      const ctx = canvasRef.current.getContext('2d');
+      if (!ctx) return;
 
-        // Check if source is ready
-        let isReady = false;
-        if (source instanceof HTMLVideoElement) {
-          isReady = source.videoWidth > 0;
-        } else if (source instanceof HTMLImageElement) {
-          isReady = source.complete && source.naturalWidth > 0;
+      const source = config.source === "webcam" ? videoRef.current : imgRef.current;
+      if (!source) {
+         animationFrame = requestAnimationFrame(detectMotion);
+         return;
+      }
+
+      // Check if source is ready
+      let isReady = false;
+      if (source instanceof HTMLVideoElement) {
+        isReady = source.videoWidth > 0;
+      } else if (source instanceof HTMLImageElement) {
+        isReady = source.complete && source.naturalWidth > 0;
+      }
+
+      if (!isReady) {
+        animationFrame = requestAnimationFrame(detectMotion);
+        return;
+      }
+
+      canvasRef.current.width = 160; 
+      canvasRef.current.height = 120;
+      ctx.drawImage(source, 0, 0, 160, 120);
+      
+      const currentFrame = ctx.getImageData(0, 0, 160, 120);
+      
+      if (prevFrameRef.current) {
+        let diffCount = 0;
+        for (let i = 0; i < currentFrame.data.length; i += 4) {
+          // Compare R, G, B channels
+          const rDiff = Math.abs(currentFrame.data[i] - prevFrameRef.current.data[i]);
+          const gDiff = Math.abs(currentFrame.data[i+1] - prevFrameRef.current.data[i+1]);
+          const bDiff = Math.abs(currentFrame.data[i+2] - prevFrameRef.current.data[i+2]);
+          
+          if ((rDiff + gDiff + bDiff) / 3 > 30) {
+            diffCount++;
+          }
         }
-
-        if (!isReady) return;
-
-        // Capture frame
-        const snapCanvas = document.createElement("canvas");
-        if (source instanceof HTMLVideoElement) {
-          snapCanvas.width = source.videoWidth;
-          snapCanvas.height = source.videoHeight;
-        } else {
-          snapCanvas.width = source.naturalWidth;
-          snapCanvas.height = source.naturalHeight;
-        }
-        const snapCtx = snapCanvas.getContext("2d");
-        snapCtx?.drawImage(source, 0, 0);
-        const thumbnail = snapCanvas.toDataURL("image/jpeg", 0.7);
         
-        performAIAnalysis(thumbnail);
-      };
+        const motionPercent = (diffCount / (160 * 120)) * 100;
+        if (motionPercent > config.sensitivity) {
+          handleMotionDetected();
+        }
+      }
+      
+      prevFrameRef.current = currentFrame;
+      animationFrame = requestAnimationFrame(detectMotion);
+    };
 
-      interval = window.setInterval(trigger, config.intervalSeconds * 1000);
-      // Run once immediately
-      trigger();
+    if (isMonitoring) {
+      animationFrame = requestAnimationFrame(detectMotion);
+    } else {
+      prevFrameRef.current = null;
     }
-    return () => clearInterval(interval);
-  }, [isMonitoring, config.intervalSeconds, config.source]);
+
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isMonitoring, config.sensitivity, config.source]);
+
+  const handleMotionDetected = () => {
+    const now = Date.now();
+    // Throttle AI analysis to once every 10 seconds to avoid overloading RPI5
+    if (now - lastMotionTime < 10000) return; 
+    
+    setLastMotionTime(now);
+    addEvent("motion", "Significant change detected in sector");
+
+    // Capture high-res frame for AI
+    const source = config.source === "webcam" ? videoRef.current : imgRef.current;
+    if (source) {
+      const snapCanvas = document.createElement("canvas");
+      if (source instanceof HTMLVideoElement) {
+        snapCanvas.width = source.videoWidth;
+        snapCanvas.height = source.videoHeight;
+      } else {
+        snapCanvas.width = source.naturalWidth;
+        snapCanvas.height = source.naturalHeight;
+      }
+      const snapCtx = snapCanvas.getContext("2d");
+      snapCtx?.drawImage(source, 0, 0);
+      const thumbnail = snapCanvas.toDataURL("image/jpeg", 0.7);
+      
+      performAIAnalysis(thumbnail);
+    }
+  };
 
   const performAIAnalysis = async (imageData: string) => {
     if (isAnalyzing) return;
@@ -247,7 +302,7 @@ export default function App() {
             </div>
             {isMonitoring && (
                <span className="bg-red-500/20 text-red-400 px-2.5 py-1 rounded text-[10px] font-bold border border-red-500/40 uppercase animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.2)]">
-                REC // TIMED_TRIGGER
+                REC // MOTION_TRIGGER
               </span>
             )}
           </div>
@@ -345,19 +400,19 @@ export default function App() {
             <div className="space-y-6">
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Analysis Interval</span>
-                  <span className="text-xs font-mono text-emerald-400">{config.intervalSeconds}s</span>
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">Motion Sensitivity</span>
+                  <span className="text-xs font-mono text-emerald-400">{config.sensitivity}%</span>
                 </div>
                 <div className="relative group">
                   <input 
                     type="range" 
-                    min="1" 
-                    max="60" 
-                    value={config.intervalSeconds}
-                    onChange={(e) => setConfig({...config, intervalSeconds: parseInt(e.target.value)})}
+                    min="5" 
+                    max="80" 
+                    value={config.sensitivity}
+                    onChange={(e) => setConfig({...config, sensitivity: parseInt(e.target.value)})}
                     className="w-full h-1.5 bg-slate-800 rounded-full appearance-none cursor-pointer accent-emerald-500"
                   />
-                  <div className="absolute top-0 h-1.5 bg-emerald-500 rounded-full pointer-events-none transition-all" style={{ width: `${(config.intervalSeconds/60)*100}%` }}></div>
+                  <div className="absolute top-0 h-1.5 bg-emerald-500 rounded-full pointer-events-none transition-all" style={{ width: `${config.sensitivity}%` }}></div>
                 </div>
               </div>
               
