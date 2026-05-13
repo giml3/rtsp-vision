@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;700;800&family=Playfair+Display:ital,wght@0,900;1,900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-bento-bg: #020617;
+  --color-bento-card: #0f172a;
+  --color-bento-border: #1e293b;
+  --color-bento-accent: #10b981;
+}
+
+@layer base {
+  body {
+    @apply bg-bento-bg text-slate-100;
+  }
+}
+
+.bento-card {
+  @apply bg-bento-card border border-bento-border rounded-xl transition-all duration-300;
+}
+
+.bento-card:hover {
+  @apply border-slate-700 shadow-lg shadow-black/40;
+}
+
+.feed-container {
+  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+}
+
+.scanline {
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  background: rgba(52, 211, 153, 0.1);
+  top: 0;
+  animation: scan 8s linear infinite;
+}
+
+@keyframes scan {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+/* Custom Scrollbar for the Log */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+

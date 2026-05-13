@@ -1,0 +1,6 @@
+{
+  "name": "Vigilant Eye: RTSP AI Monitor",
+  "description": "An AI-powered dashboard for monitoring RTSP camera feeds with motion detection and automated event logging.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["AI Object Detection", "Real-time Monitoring", "Event Logging"]
+}
