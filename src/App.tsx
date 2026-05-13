@@ -22,7 +22,6 @@ interface CameraConfig {
   source: "webcam" | "rtsp" | "test";
   url: string;
   intervalSeconds: number;
-  aiProvider: "gemini" | "ollama";
   ollamaUrl: string;
   ollamaModel: string;
   aiPrompt: string;
@@ -33,7 +32,6 @@ export default function App() {
     source: "webcam",
     url: "rtsp://localhost:8554/mystream",
     intervalSeconds: 5,
-    aiProvider: "ollama",
     ollamaUrl: "http://localhost:11434",
     ollamaModel: "granite4.1:3b",
     aiPrompt: "Analyze this image from my RPI5 dashcam. Briefly describe any significant motion, objects (people, cars, animals) or hazards. Be concise."
@@ -139,23 +137,17 @@ export default function App() {
   const performAIAnalysis = async (imageData: string) => {
     if (isAnalyzing) return;
     setIsAnalyzing(true);
-    addEvent("system", "Starting AI evaluation...");
+    addEvent("system", "Dispatching frame to local RPI5 LLM...");
 
     try {
-      if (config.aiProvider === "gemini") {
-        const base64 = imageData.split(",")[1];
-        const analysis = await analyzeImage(base64, config.aiPrompt);
-        addEvent("ai_alert", "AI: " + analysis);
-      } else {
-        const base64 = imageData.split(",")[1];
-        const response = await axios.post("/api/analyze-ollama", {
-          model: config.ollamaModel,
-          image: base64,
-          prompt: config.aiPrompt,
-          ollamaUrl: config.ollamaUrl
-        });
-        addEvent("ai_alert", `Ollama (${config.ollamaModel}): ` + (response.data.response || "No data"));
-      }
+      const base64 = imageData.split(",")[1];
+      const response = await axios.post("/api/analyze-ollama", {
+        model: config.ollamaModel,
+        image: base64,
+        prompt: config.aiPrompt,
+        ollamaUrl: config.ollamaUrl
+      });
+      addEvent("ai_alert", `Local AI (${config.ollamaModel}): ` + (response.data.response || "No data"));
     } catch (err: any) {
       addEvent("system", "AI Analysis Error: " + err.message);
     } finally {
@@ -458,26 +450,6 @@ export default function App() {
                 )}
 
                 <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Inference Engine</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => setConfig({...config, aiProvider: 'gemini'})}
-                      className={`px-4 py-3.5 rounded-xl border text-[10px] font-bold transition-all uppercase tracking-widest
-                        ${config.aiProvider === 'gemini' ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400' : 'bg-slate-950 border-slate-800 text-slate-600'}`}
-                    >
-                      Gemini API
-                    </button>
-                    <button 
-                      onClick={() => setConfig({...config, aiProvider: 'ollama'})}
-                      className={`px-4 py-3.5 rounded-xl border text-[10px] font-bold transition-all uppercase tracking-widest
-                        ${config.aiProvider === 'ollama' ? 'bg-amber-500/10 border-amber-500 text-amber-400' : 'bg-slate-950 border-slate-800 text-slate-600'}`}
-                    >
-                      Local Ollama
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
                   <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Analysis Instruction (Prompt)</label>
                   <textarea 
                     rows={3}
@@ -488,29 +460,27 @@ export default function App() {
                   />
                 </div>
 
-                {config.aiProvider === 'ollama' && (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Ollama Model</label>
-                      <input 
-                        type="text"
-                        value={config.ollamaModel}
-                        onChange={(e) => setConfig({...config, ollamaModel: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-amber-500 transition-colors text-amber-500"
-                        placeholder="e.g. granite-vision"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Ollama Local URI</label>
-                      <input 
-                        type="text"
-                        value={config.ollamaUrl}
-                        onChange={(e) => setConfig({...config, ollamaUrl: e.target.value})}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-emerald-500 transition-colors text-slate-300"
-                      />
-                    </div>
-                  </>
-                )}
+                <div className="space-y-4 pt-2 border-t border-slate-800">
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Local Model (Ollama)</label>
+                    <input 
+                      type="text"
+                      value={config.ollamaModel}
+                      onChange={(e) => setConfig({...config, ollamaModel: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-amber-500 transition-colors text-amber-500"
+                      placeholder="e.g. granite4.1:3b"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono">Raspberry Pi Node URI</label>
+                    <input 
+                      type="text"
+                      value={config.ollamaUrl}
+                      onChange={(e) => setConfig({...config, ollamaUrl: e.target.value})}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3.5 text-sm font-mono focus:outline-none focus:border-emerald-500 transition-colors text-slate-300"
+                    />
+                  </div>
+                </div>
                 
                 <button 
                   onClick={() => setShowSettings(false)}
